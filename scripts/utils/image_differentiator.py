@@ -4,7 +4,7 @@ from PIL import Image
 # import torch
 
 class ImageDifferentiator:
-    def __init__(self, model, image: Image, grid_shape=(17, 10)):
+    def __init__(self, model, image: Image, grid_shape=(16, 10)):
         self.model = model  # CNN 모델
         self.grid_shape = grid_shape  # (세로, 가로) 형태
         self.image = image
