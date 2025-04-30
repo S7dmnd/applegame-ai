@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import random
+import math
 
 class VirtualDynamicsHandler:
     def __init__(self, grid_shape=(17, 10), max_episode_size=50, seed=None):
@@ -71,7 +71,7 @@ class VirtualDynamicsHandler:
         self.done = self.step_count >= self.max_episode_size or self._check_done()
         flatten_grid = self.current_grid.to_numpy().flatten() # flatten한 것 (170, )
         # print(flatten_grid)
-        return flatten_grid, reward, self.done
+        return flatten_grid, math.sqrt(reward) * 20, self.done
 
     def _check_done(self):
         return (self.current_grid == 0).all().all()

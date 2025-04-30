@@ -17,16 +17,7 @@ def run_ppo_training(args):
     os.makedirs(logdir, exist_ok=True)
     logger = Logger(logdir)
 
-    if args.seed:
-        # 랜덤 시드
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        ptu.init_gpu(use_gpu=not args.no_gpu, gpu_id=args.which_gpu)
-
-        # 환경 초기화
-        env = VirtualDynamicsHandler(max_episode_size=args.max_ep_len)
-    else:
-        env = VirtualDynamicsHandler(max_episode_size=args.max_ep_len)
+    env = VirtualDynamicsHandler(max_episode_size=args.max_ep_len)
 
     # obs, action dimension
     ob_dim = np.prod(env.grid_shape)  # 17 x 10 = 170
@@ -74,7 +65,7 @@ def run_ppo_training(args):
             logs["TimeSinceStart"] = time.time() - start_time
             print("Logging...")
             for k, v in logs.items():
-                (f"{k}: {v}")
+                print(f"{k}: {v}")
                 logger.log_scalar(v, k, itr)
             logger.flush()
 
