@@ -21,7 +21,7 @@ def run_ppo_training(args):
 
     # obs, action dimension
     ob_dim = np.prod(env.grid_shape)  # 17 x 10 = 170
-    ac_dim = len(env.all_actions)     # 전체 valid 사각형 개수
+    ac_dim = 4     # Continuous R4 Vector
 
     # PPO 에이전트 초기화
     agent = PPOAgent(
@@ -56,6 +56,7 @@ def run_ppo_training(args):
         obs, actions, next_obs, terminals, rewards, rewards_per_traj = convert_listofrollouts(trajs)
 
         # 에이전트 업데이트
+        obs = obs.to(ptu.device)
         train_info = agent.update(obs, actions, rewards_per_traj, terminals)
 
         if itr % args.log_freq == 0:

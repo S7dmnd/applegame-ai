@@ -1,6 +1,6 @@
 from collections import OrderedDict
 import numpy as np
-import copy
+import torch
 from scripts.networks.ppo_actor import PPOActor
 from scripts.utils import pytorch_utils as ptu
 from scripts.utils.virtual_dynamics_handler import VirtualDynamicsHandler
@@ -25,15 +25,14 @@ def rollout_trajectory(
             # image_obs.append(img)
             pass
 
-        assert ob.ndim == 1
+        assert ob.shape == torch.Size([1, 1, env.grid_shape[1], env.grid_shape[0]]), f"Observation Shape = {ob.shape}" #(1, 1, h, w)
         # TODO use the most recent ob and the policy to decide what to do
-        ac: np.ndarray = policy.get_action(ob).squeeze()
+        ac: np.ndarray = policy.get_action(ob)
 
         # check if output action matches the action space
         # print(f"ac: {type(ac)}, env.action_space: {type(env.action_space)}")
 
-        # assert ac.shape == 우리가 쓰는 액션 스페이스 ([col1, row1, col2, row2]) 확인
-        assert isinstance(ac, (int, np.integer)), f"Expected scalar int action, got {type(ac)} with shape {ac.shape}"
+        assert isinstance(ac, np.ndarray) and ac.shape == (4,), f"Expected R⁴ action np.ndarray of shape (4,), got {type(ac)} with shape {ac.shape}"
 
         next_ob, rew, done = env.step(ac)
         # env.step(ac)에서 next_ob가 flatten되지 않은 것 같음!
@@ -43,6 +42,8 @@ def rollout_trajectory(
         rollout_done: bool = (done) or (steps >= max_length)
 
         # record result of taking that action
+        # 디버깅
+        # print(ac.shape)
         obs.append(ob)
         acs.append(ac)
         rewards.append(rew)
@@ -56,13 +57,13 @@ def rollout_trajectory(
             break
 
     return {
-        "observation": np.array(obs, dtype=np.float32),
+        "observation": torch.cat(obs, dim=0),              
         "image_obs": np.array(image_obs, dtype=np.uint8),
         "reward": np.array(rewards, dtype=np.float32),
         "action": np.array(acs, dtype=np.float32),
-        "next_observation": np.array(next_obs, dtype=np.float32),
+        "next_observation": torch.cat(next_obs, dim=0),  
         "terminal": np.array(terminals, dtype=np.float32),
-    }
+    }   
 
 
 def rollout_trajectories(
@@ -130,9 +131,9 @@ def convert_listofrollouts(trajs):
     Take a list of rollout dictionaries and return separate arrays, where each array is a concatenation of that array
     from across the rollouts.
     """
-    observations = np.concatenate([traj["observation"] for traj in trajs])
-    actions = np.concatenate([traj["action"] for traj in trajs])
-    next_observations = np.concatenate([traj["next_observation"] for traj in trajs])
+    observations = torch.cat([traj["observation"].cpu() for traj in trajs], dim=0)
+    actions = np.vstack([traj["action"] for traj in trajs])
+    next_observations = torch.cat([traj["next_observation"].cpu() for traj in trajs], dim=0)
     terminals = np.concatenate([traj["terminal"] for traj in trajs])
     concatenated_rewards = np.concatenate([traj["reward"] for traj in trajs])
     unconcatenated_rewards = [traj["reward"] for traj in trajs]

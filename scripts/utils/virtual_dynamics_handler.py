@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import torch
+from scripts.utils import pytorch_utils as ptu
 import math
 
 class VirtualDynamicsHandler:
@@ -21,6 +23,8 @@ class VirtualDynamicsHandler:
                     for row2 in range(row1, self.grid_shape[1]):
                         self.all_actions.append(((col1, row1), (col2, row2)))
 
+        ptu.init_gpu()
+
     def reset(self):
         """환경 초기화: 1~9 사이 숫자로 가득 찬 Grid 생성"""
         if self.seed:
@@ -31,7 +35,7 @@ class VirtualDynamicsHandler:
         self.current_score = 0
         self.done = False
         self.step_count = 0
-        return self.current_grid.to_numpy().flatten()
+        return torch.tensor(self.current_grid.values, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(ptu.device)
 
     def perform_action(self, action):
         """
@@ -39,7 +43,7 @@ class VirtualDynamicsHandler:
         박스 내 값의 합이 10이면
         해당 박스 내부 값을 모두 0으로 만듦 (사과 없앰)
         """
-        (col1, row1), (col2, row2) = action
+        col1, row1, col2, row2 = np.floor(action).astype(int)
         if col1 <= col2:
             small_col = col1
             large_col = col2 + 1
@@ -62,16 +66,25 @@ class VirtualDynamicsHandler:
             self.current_grid.iloc[small_row:large_row, small_col:large_col] = 0
         self.current_score = (self.current_grid == 0).sum().sum()
 
-    def step(self, action_index):
+        reward = self.compute_reward(affected_area.values.sum())
+
+        return reward
+    
+    def compute_reward(self, box_sum):
+        diff = abs(box_sum - 10)
+        reward = 20 * math.exp(-diff**2 / 2.0) - 10  # max: +10, min: -10
+        return reward
+
+    def step(self, action):
         # Action index -> Action으로 변환
-        action = self._index_to_action(action_index)
-        self.perform_action(action)
-        reward = self.current_score - self.previous_score # penalty for time usage
+        # action_vec: np.ndarray of shape (4,)
+        reward = self.perform_action(action)
         self.step_count += 1
         self.done = self.step_count >= self.max_episode_size or self._check_done()
-        flatten_grid = self.current_grid.to_numpy().flatten() # flatten한 것 (170, )
+        # flatten_grid = self.current_grid.to_numpy().flatten() # flatten한 것 (170, )
         # print(flatten_grid)
-        return flatten_grid, math.sqrt(reward) * 20, self.done
+        torch_grid = torch.tensor(self.current_grid.values, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(ptu.device)
+        return torch_grid, reward, self.done
 
     def _check_done(self):
         return (self.current_grid == 0).all().all()

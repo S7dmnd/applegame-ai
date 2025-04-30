@@ -40,13 +40,14 @@ class PPOAgent(nn.Module):
 
     def update(
         self,
-        obs: Sequence[np.ndarray],
+        obs: Sequence[torch.Tensor],
         actions: Sequence[np.ndarray],
         rewards_per_traj: Sequence[np.ndarray],
         terminals: Sequence[np.ndarray],
     ) -> dict:
-        obs = np.vstack(obs)
-        actions = np.array(actions).reshape(-1, 1) # 각 action이 그냥 int라서 그런듯?
+        if isinstance(obs, (list, tuple)):
+            obs = torch.cat(obs, dim=0)  # shape: (batch_size, 1, H, W)
+        actions = np.array(actions)
         rewards = np.concatenate(rewards_per_traj)
         terminals = np.array(terminals).reshape(-1, 1)
 
@@ -56,8 +57,9 @@ class PPOAgent(nn.Module):
         if self.normalize_advantages:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        logp_old = self._calculate_log_probs(obs, actions).reshape(-1)
-        
+        # print(actions.shape)
+        logp_old = self._calculate_log_probs(obs, actions)
+
         n_batch = len(obs)
         inds = np.arange(n_batch)
         for _ in range(self.n_ppo_epochs):
@@ -81,13 +83,14 @@ class PPOAgent(nn.Module):
 
     def _estimate_advantage(
         self,
-        obs: np.ndarray,
+        obs: torch.Tensor,
         rewards: np.ndarray,
         q_values: np.ndarray,
         terminals: np.ndarray,
     ) -> np.ndarray:
-        obs_torch = ptu.from_numpy(obs)
-        values = self.critic(obs_torch).detach().cpu().numpy()
+        # obs: (batch, 1, 17, 10)
+        obs = obs.to(ptu.device)
+        values = self.critic(obs).detach().cpu().numpy()
         batch_size = obs.shape[0]
 
         values = np.append(values, [0])
@@ -100,6 +103,7 @@ class PPOAgent(nn.Module):
 
         return advantages[:-1]
 
+
     def _discounted_reward_to_go(self, rewards: np.ndarray) -> np.ndarray:
         ret = np.zeros_like(rewards, dtype=np.float32)
         for t in range(len(rewards)):
@@ -111,9 +115,8 @@ class PPOAgent(nn.Module):
             ret[t] = discounted_sum
         return ret
 
-    def _calculate_log_probs(self, obs: np.ndarray, actions: np.ndarray) -> np.ndarray:
-        obs = ptu.from_numpy(obs)
+    def _calculate_log_probs(self, obs: torch.Tensor, actions: np.ndarray) -> np.ndarray:
         actions = ptu.from_numpy(actions)
         dist = self.actor(obs)
-        log_probs = dist.log_prob(actions)
+        log_probs = dist.log_prob(actions).sum(axis=-1)
         return ptu.to_numpy(log_probs)
