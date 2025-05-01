@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 from scripts.utils import pytorch_utils as ptu
+from scripts.utils import env_utils
 import math
 
 class VirtualDynamicsHandler:

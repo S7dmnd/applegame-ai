@@ -70,6 +70,7 @@ class PPOActor(nn.Module):
         #print(f"[ppo_update] logp: {logp.shape}, old_logp: {old_logp.shape}")
 
         ratio = torch.exp(logp - old_logp)
+        #print(advantages.size())
 
         clipped_ratio = torch.clamp(ratio, 1 - ppo_cliprange, 1 + ppo_cliprange)
         unclipped = ratio * advantages

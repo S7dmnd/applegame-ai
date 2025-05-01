@@ -2,11 +2,13 @@ import pyautogui
 import cv2
 import numpy as np
 from PIL import Image
-from image_differentiator import ImageDifferentiator
+from scripts.utils.image_differentiator import ImageDifferentiator
+from scripts.utils import env_utils as eu
+from scripts.utils import pytorch_utils as ptu
 import time
 
 class DynamicsHandler:
-    def __init__(self, model, grid_shape=(17, 10), margin_w_ratio=0.046, margin_h_ratio=0.039, max_episode_size=50):
+    def __init__(self, model, grid_shape=(17, 10), margin_w_ratio=0.046, margin_h_ratio=0.039, max_episode_size=150):
         self.model = model  # Differentiator용 CNN
         self.differentiator = None # 구조 수정 완료; 처음에만 instanciation함
         self.crop_ratio = (0.053, 0.08, 0.928, 0.94) #이것도 나중에는 구조 수정하면 위의 self.differentiator에서 가져올거임
@@ -14,6 +16,7 @@ class DynamicsHandler:
         self.current_grid = None
         self.current_score = 0
         self.previous_score = 0
+        self.step_count = 0
 
         self.done = False
         self.max_episode_size = max_episode_size
@@ -28,6 +31,14 @@ class DynamicsHandler:
         
         # 스크린 해상도 기준 - 필요하면 calibrate
         self.screen_width, self.screen_height = pyautogui.size()
+
+    def reset(self):
+        self.current_grid = None
+        self.previous_score = 0
+        self.current_score = 0
+        self.done = False
+        self.step_count = 0
+        return self.get_observation()
 
     def autocrop_game_area_cv(self, pil_image):
         cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -88,15 +99,16 @@ class DynamicsHandler:
         self.current_grid = grid
         self.previous_score = self.current_score
         self.current_score = (self.current_grid == 0).sum().sum()
+        # print(self.current_grid)
 
-        return grid
+        return eu.to_tensor(grid=self.current_grid, device=ptu.device)
 
     def perform_action(self, action):
         """
         action: ((start_col, start_row), (end_col, end_row))
         두 셀 좌표 받아서 드래그 액션 수행
         """
-        ((col1, row1), (col2, row2)) = action
+        col1, row1, col2, row2 = np.floor(action).astype(int)
         start_x = round(self.top_left_cell_coordinate[0] + col1 * self.w_per_cell)
         start_y = round(self.top_left_cell_coordinate[1] + row1 * self.h_per_cell)
         end_x = round(self.top_left_cell_coordinate[0] + (col2 + 1) * self.w_per_cell)
@@ -116,16 +128,17 @@ class DynamicsHandler:
         pyautogui.mouseUp()
 
 
-    def step(self, action, step:int):
+    def step(self, action):
         """Agent가 action을 주면, 환경을 한 스텝 진행시킨다"""
         self.perform_action(action)
 
         # 드래그 후 잠깐 기다려야 게임판이 업데이트됨
-        pyautogui.sleep(0.5)
+        pyautogui.sleep(0.7)
 
         next_grid = self.get_observation()
-        reward = self.current_score - self.previous_score - 0.1 # "소요시간" 까지 고려해서, 무의미한 액션에는 페널티
-        done = self.check_done(step)
+        reward = self.current_score - self.previous_score # "소요시간" 까지 고려해서, 무의미한 액션에는 페널티
+        self.step_count += 1
+        done = self.check_done(self.step_count)
 
         return next_grid, reward, done
 

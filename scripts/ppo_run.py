@@ -57,7 +57,7 @@ def run_ppo_training(args):
 
         # 에이전트 업데이트
         obs = obs.to(ptu.device)
-        train_info = agent.update(obs, actions, rewards_per_traj, terminals)
+        train_info = agent.update(obs, actions, rewards_per_traj, terminals, next_obs=next_obs)
 
         if itr % args.log_freq == 0:
             logs = compute_metrics(trajs, trajs)
@@ -69,6 +69,8 @@ def run_ppo_training(args):
                 print(f"{k}: {v}")
                 logger.log_scalar(v, k, itr)
             logger.flush()
+    
+    torch.save(agent.actor.state_dict(), "ppo_actor.pt") #저장
 
 
 if __name__ == "__main__":

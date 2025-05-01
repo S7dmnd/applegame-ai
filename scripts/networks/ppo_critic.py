@@ -35,3 +35,40 @@ class PPOCritic(nn.Module):
         loss.backward()
         self.optimizer.step()
         return {"CriticLoss": loss.item()}
+
+class PPOQCritic(nn.Module):
+    def __init__(self, ob_dim, act_dim, n_layers=2, hidden_size=128, learning_rate=1e-3):
+        super().__init__()
+        self.act_dim = act_dim
+        self.ob_dim = ob_dim
+
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(ob_dim + act_dim, hidden_size),
+            nn.ReLU(),
+            *[
+                layer for _ in range(n_layers - 1)
+                for layer in (nn.Linear(hidden_size, hidden_size), nn.ReLU())
+            ],
+            nn.Linear(hidden_size, 1),
+        ).to(ptu.device)
+
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+
+    def forward(self, obs, actions):
+        # obs: (B, 1, 17, 10), actions: (B, act_dim)
+        obs_flat = obs.view(obs.size(0), -1)
+        if actions.dim() == 1:
+            actions = actions.unsqueeze(1)  # (B,) → (B, 1)
+        x = torch.cat([obs_flat, actions], dim=-1)
+        return self.model(x).squeeze(-1)  # (B,)
+
+    def update(self, obs, actions, q_targets):
+        pred_q = self.forward(obs, actions)
+        loss = nn.functional.mse_loss(pred_q, ptu.from_numpy(q_targets))
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return {'QCriticLoss': ptu.to_numpy(loss)}
+    
