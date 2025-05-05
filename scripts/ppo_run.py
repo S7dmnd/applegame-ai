@@ -70,7 +70,7 @@ def run_ppo_training(args):
                 logger.log_scalar(v, k, itr)
             logger.flush()
     
-    torch.save(agent.actor.state_dict(), "ppo_actor.pt") #저장
+    torch.save(agent.actor.state_dict(), "ppo_actor_2.pt") #저장
 
 
 if __name__ == "__main__":

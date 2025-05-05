@@ -22,7 +22,7 @@ def main(cnn_model_path="cnn_model_weights.pth"):
 
     # 모델 생성
     actor = PPOActor(obs_dim=obs_dim, act_dim=act_dim)
-    actor.load_state_dict(torch.load("ppo_actor.pt", map_location=device))
+    actor.load_state_dict(torch.load("ppo_actor_2.pt", map_location=device))
     actor.eval()
 
     obs = env.reset()  # torch.Tensor, shape: (1, 1, 17, 10)

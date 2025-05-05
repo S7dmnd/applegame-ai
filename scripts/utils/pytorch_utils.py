@@ -2,6 +2,7 @@ from typing import Union
 
 import torch
 from torch import nn
+import numpy as np
 
 Activation = Union[str, nn.Module]
 
@@ -77,9 +78,17 @@ def set_device(gpu_id):
     torch.cuda.set_device(gpu_id)
 
 
-def from_numpy(*args, **kwargs):
-    return torch.from_numpy(*args, **kwargs).float().to(device)
+def from_numpy(data: Union[np.ndarray, dict], **kwargs):
+    if isinstance(data, dict):
+        return {k: from_numpy(v, **kwargs) for k, v in data.items()}
+    else:
+        tensor = torch.from_numpy(data, **kwargs)
+        if tensor.dtype == torch.float64:
+            tensor = tensor.float()
+        return tensor.to(device)
 
-
-def to_numpy(tensor):
-    return tensor.to("cpu").detach().numpy()
+def to_numpy(tensor: Union[torch.Tensor, dict]):
+    if isinstance(tensor, dict):
+        return {k: to_numpy(v) for k, v in tensor.items()}
+    else:
+        return tensor.to("cpu").detach().numpy()
