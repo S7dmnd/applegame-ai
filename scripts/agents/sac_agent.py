@@ -245,6 +245,11 @@ class SoftActorCritic(nn.Module):
         # TODO(student): Compute loss using `self.critic_loss`
         loss: torch.Tensor = self.critic_loss(q_values, target_values)
 
+        # PER에 갖다 쓸 td errors for each sample
+        td_errors = (q_values - target_values).detach()  # shape: (num_critics, batch_size)
+        per_sample_td_error = td_errors.mean(dim=0).abs().cpu().numpy()  # shape: (batch_size,)
+        # print(per_sample_td_error.shape)
+
         self.critic_optimizer.zero_grad()
         loss.backward()
         self.critic_optimizer.step()
@@ -253,6 +258,7 @@ class SoftActorCritic(nn.Module):
             "critic_loss": loss.item(),
             "q_values": q_values.mean().item(),
             "target_values": target_values.mean().item(),
+            "td_errors": per_sample_td_error,
         }
 
     def entropy(self, action_distribution: torch.distributions.Distribution):
@@ -409,8 +415,9 @@ class SoftActorCritic(nn.Module):
 
         # Average the critic info over all of the steps
         critic_info = {
-            k: np.mean([info[k] for info in critic_infos]) for k in critic_infos[0]
+            k: np.mean([info[k] for info in critic_infos]) for k in critic_infos[0] if k != "td_errors"
         }
+        critic_info["td_errors"] = critic_infos[-1]["td_errors"]
 
         # Deal with LR scheduling
         self.actor_lr_scheduler.step()

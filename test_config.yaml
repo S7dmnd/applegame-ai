@@ -1,0 +1,26 @@
+num_critic_networks: 2
+target_critic_backup_type: doubleq
+exp_name: sac_doubleq
+
+# Same for all Hopper experiments
+base_config: sac
+env_name: VDH-v2
+
+total_steps: 400000
+random_steps: 1000
+training_starts: 1000
+
+ep_len: 100
+batch_size: 2000
+replay_buffer_capacity: 400000
+
+discount: 0.90
+use_soft_target_update: true
+soft_target_update_rate: 0.005
+
+actor_gradient_type: reparametrize
+num_critic_updates: 10
+
+use_entropy_bonus: true
+temperature: 0.1
+backup_entropy: false

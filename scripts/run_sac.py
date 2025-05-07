@@ -8,7 +8,7 @@ import tqdm
 
 import env_configs
 from scripts.agents.sac_agent import SoftActorCritic
-from scripts.utils.replay_buffer import ReplayBuffer
+from scripts.utils.replay_buffer import ReplayBuffer, PERReplayBuffer
 from scripts.utils.logger import Logger
 from scripts.utils import pytorch_utils as ptu
 from scripts.utils import utils
@@ -52,7 +52,11 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         **config["agent_kwargs"],
     )
 
-    replay_buffer = ReplayBuffer(config["replay_buffer_capacity"])
+    if args.per:
+        replay_buffer = PERReplayBuffer(config["replay_buffer_capacity"])
+        print("##### Using PER #####")
+    else:
+        replay_buffer = ReplayBuffer(config["replay_buffer_capacity"])
 
     observation, _ = env.reset()
 
@@ -96,10 +100,21 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
             update_info["actor_lr"] = agent.actor_lr_scheduler.get_last_lr()[0]
             update_info["critic_lr"] = agent.critic_lr_scheduler.get_last_lr()[0]
 
+            # 마지막 critic update의 td_errors를 꺼내와서 priorities로 사용
+            if "indices" in batch:
+                # print("PER 잘 적용됐나 확인")
+                assert "td_errors" in update_info
+                new_priorities = update_info["td_errors"]
+                # print("new_priorities:", new_priorities)
+                # print("indices:", batch["indices"])
+                replay_buffer.update_priorities(batch["indices"], new_priorities)
+
+
             if step % args.log_interval == 0:
                 for k, v in update_info.items():
-                    logger.log_scalar(v, k, step)
-                    logger.log_scalars
+                    if k != "td_errors":
+                        logger.log_scalar(v, k, step)
+                        logger.log_scalars
                 logger.flush()
 
         # run evaluation
@@ -159,6 +174,8 @@ def main():
     parser.add_argument("--no_gpu", "-ngpu", action="store_true")
     parser.add_argument("--which_gpu", "-g", default=0)
     parser.add_argument("--log_interval", type=int, default=1000)
+
+    parser.add_argument("--per", "-per", action="store_true") #PER 켜는 용도
 
     args = parser.parse_args()
 

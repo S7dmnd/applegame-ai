@@ -10,6 +10,7 @@ total_steps: 400000
 random_steps: 20000
 training_starts: 30000
 
+ep_len: 100
 batch_size: 2000
 replay_buffer_capacity: 400000
 
