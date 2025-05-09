@@ -12,7 +12,8 @@ class SoftActorCritic(nn.Module):
         self,
         observation_shape: Sequence[int],
         action_dim: int,
-        make_actor: Callable[[Tuple[int, ...], int], nn.Module],
+        use_mlp: bool,
+        make_actor: Callable[[Tuple[int, ...], int, bool], nn.Module],
         make_actor_optimizer: Callable[[torch.nn.ParameterList], torch.optim.Optimizer],
         make_actor_schedule: Callable[
             [torch.optim.Optimizer], torch.optim.lr_scheduler._LRScheduler
@@ -59,7 +60,9 @@ class SoftActorCritic(nn.Module):
             target_update_period is not None or soft_target_update_rate is not None
         ), "Must specify either target_update_period or soft_target_update_rate"
 
-        self.actor = make_actor(observation_shape, action_dim)
+        self.use_mlp = use_mlp
+        print(f"Use CNN: {not self.use_mlp}")
+        self.actor = make_actor(observation_shape, action_dim, self.use_mlp)
         self.actor_optimizer = make_actor_optimizer(self.actor.parameters())
         self.actor_lr_scheduler = make_actor_schedule(self.actor_optimizer)
 
@@ -97,7 +100,6 @@ class SoftActorCritic(nn.Module):
         self.critic_loss = nn.MSELoss()
 
         self.update_target_critic()
-
     def get_action(self, observation: np.ndarray) -> np.ndarray:
         """
         Compute the action for a given observation.

@@ -49,6 +49,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
     agent = SoftActorCritic(
         ob_shape,
         ac_dim,
+        args.mlp,
         **config["agent_kwargs"],
     )
 
@@ -175,7 +176,8 @@ def main():
     parser.add_argument("--which_gpu", "-g", default=0)
     parser.add_argument("--log_interval", type=int, default=1000)
 
-    parser.add_argument("--per", "-per", action="store_true") #PER 켜는 용도
+    parser.add_argument("--per", "-per", action="store_true") # PER 켜는 용도
+    parser.add_argument("--mlp", "-mlp", action="store_true") # Actor CNN 끄는 용도
 
     args = parser.parse_args()
 

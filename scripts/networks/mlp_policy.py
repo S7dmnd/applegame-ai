@@ -71,6 +71,8 @@ class MLPPolicy(nn.Module):
         able to differentiate through it. For example, you can return a torch.FloatTensor. You can also return more
         flexible objects, such as a `torch.distributions.Distribution` object. It's up to you!
         """
+        # obs.shape = (B, 1, 17, 10) --> Flatten
+        obs = obs.view(obs.size(0), -1)  # (B, 170)
         if self.discrete:
             logits = self.logits_net(obs)
             action_distribution = distributions.Categorical(logits=logits)

@@ -49,9 +49,9 @@ def sac_config(
             size=hidden_size,
         )
 
-    def make_actor(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
+    def make_actor(observation_shape: Tuple[int, ...], action_dim: int, use_mlp: bool) -> nn.Module:
         # CNN 조건: observation shape가 3차원이고, 채널수가 1이고, H=10, W=17일 경우
-        if len(observation_shape) == 3 and observation_shape == (1, 10, 17):
+        if not use_mlp:
             print("Using CNN Policy")
             return CNNPolicy(
                 ac_dim=action_dim,

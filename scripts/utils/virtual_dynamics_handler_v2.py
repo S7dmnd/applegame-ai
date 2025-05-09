@@ -110,7 +110,7 @@ class VirtualDynamicsHandler:
     def compute_reward(self, box_sum):
         diff = abs(box_sum - 10)
         if diff == 0:
-            reward = 100 # 정답이면 10
+            reward = 100 # 정답이면 100
         else: 
             # reward = 2.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0 # [-1, 1]
             reward = 1.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0  # [-1, 0]
