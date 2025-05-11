@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from scripts.networks.mlp_policy import MLPPolicy, CNNPolicy
+from scripts.networks.mlp_policy import MLPPolicy, CNNPolicy, EnhancedCNNPolicy
 from scripts.networks.state_action_value_critic import StateActionCritic
 from scripts.utils.virtual_dynamics_handler_v2 import VirtualDynamicsHandler
 import scripts.utils.pytorch_utils as ptu
@@ -40,6 +40,9 @@ def sac_config(
     temperature: float = 0.1,
     actor_fixed_std: Optional[float] = None,
     use_tanh: bool = True,
+    use_one_hot_encoding = False,
+    use_enhanced_cnn = False,
+    use_embedding_cnn = False,
 ):
     def make_critic(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
         return StateActionCritic(
@@ -51,9 +54,21 @@ def sac_config(
 
     def make_actor(observation_shape: Tuple[int, ...], action_dim: int, use_mlp: bool) -> nn.Module:
         # CNN 조건: observation shape가 3차원이고, 채널수가 1이고, H=10, W=17일 경우
-        if not use_mlp:
+        if (not use_mlp) and (not use_enhanced_cnn):
             print("Using CNN Policy")
             return CNNPolicy(
+                ac_dim=action_dim,
+                ob_shape=observation_shape,
+                discrete=False,
+                n_layers=num_layers,
+                layer_size=hidden_size,
+                use_tanh=use_tanh,
+                state_dependent_std=False,
+                fixed_std=actor_fixed_std,
+            )
+        elif (not use_mlp) and (use_enhanced_cnn):
+            print("Using Enhanced CNN Policy")
+            return EnhancedCNNPolicy(
                 ac_dim=action_dim,
                 ob_shape=observation_shape,
                 discrete=False,
@@ -99,7 +114,7 @@ def sac_config(
         return torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0)
 
     def make_env(render: bool = False):
-        return VirtualDynamicsHandler(discrete_action=False, allow_zeros_in_grid=False)
+        return VirtualDynamicsHandler(discrete_action=False, allow_zeros_in_grid=False, use_one_hot_encoding=use_one_hot_encoding)
 
     log_string = "{}_{}_{}_s{}_l{}_alr{}_clr{}_b{}_d{}".format(
         exp_name or "offpolicy_ac",

@@ -114,6 +114,7 @@ class CNNPolicy(nn.Module):
         self.fixed_std = fixed_std
 
         C, H, W = ob_shape
+        print(f"Initializing CNN Actor... Ob Shape = {ob_shape}")
 
         self.cnn = nn.Sequential(
             nn.Conv2d(C, 16, kernel_size=3, stride=1, padding=1),
@@ -174,6 +175,208 @@ class CNNPolicy(nn.Module):
                     std = self.std
                 else:
                     std = torch.nn.functional.softplus(self.std) + 1e-2
+
+            if self.use_tanh:
+                action_distribution = make_tanh_transformed(mean, std)
+            else:
+                action_distribution = make_multi_normal(mean, std)
+
+        return action_distribution
+
+class EnhancedCNNPolicy(nn.Module):
+    def __init__(
+        self,
+        ac_dim: int,
+        ob_shape: tuple[int, int, int],  # (C, H, W)
+        discrete: bool,
+        n_layers: int,
+        layer_size: int,
+        use_tanh: bool = True,
+        state_dependent_std: bool = False,
+        fixed_std: Optional[float] = None,
+    ):
+        super().__init__()
+
+        self.use_tanh = use_tanh
+        self.discrete = discrete
+        self.state_dependent_std = state_dependent_std
+        self.fixed_std = fixed_std
+
+        C, H, W = ob_shape
+        print(f"Initializing Enhanced CNN Actor... Ob Shape = {ob_shape}")
+
+        # Multi-Kernel block
+        self.conv3 = nn.Conv2d(C, 32, kernel_size=3, padding=1).to(ptu.device)
+        self.conv5 = nn.Conv2d(C, 32, kernel_size=5, padding=2).to(ptu.device)
+        self.conv7 = nn.Conv2d(C, 32, kernel_size=7, padding=3).to(ptu.device)
+
+        self.relu = nn.ReLU()
+
+        # Mixing conv layers
+        self.conv_mix = nn.Sequential(
+            nn.Conv2d(96, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+        ).to(ptu.device)
+
+        self.flatten = nn.Flatten()
+        conv_out_dim = 64 * H * W  # after conv_mix: 64 channels
+
+        # Fully connected head
+        if discrete:
+            self.logits_net = ptu.build_mlp(
+                input_size=conv_out_dim,
+                output_size=ac_dim,
+                n_layers=n_layers,
+                size=layer_size,
+            ).to(ptu.device)
+        else:
+            if self.state_dependent_std:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=2 * ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+            else:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+
+                if fixed_std:
+                    self.std = 0.1
+                else:
+                    self.std = nn.Parameter(
+                        torch.full((ac_dim,), 0.0, dtype=torch.float32, device=ptu.device)
+                    )
+
+    def forward(self, obs: torch.FloatTensor) -> distributions.Distribution:
+        """
+        obs: (B, C, H, W)
+        """
+        x3 = self.relu(self.conv3(obs))
+        x5 = self.relu(self.conv5(obs))
+        x7 = self.relu(self.conv7(obs))
+        x = torch.cat([x3, x5, x7], dim=1)  # (B, 96, H, W)
+
+        h = self.conv_mix(x)                # (B, 64, H, W)
+        h = self.flatten(h)                 # (B, 64 * H * W)
+
+        if self.discrete:
+            logits = self.logits_net(h)
+            action_distribution = distributions.Categorical(logits=logits)
+        else:
+            if self.state_dependent_std:
+                mean, std = torch.chunk(self.net(h), 2, dim=-1)
+                std = torch.nn.functional.softplus(std) + 1e-2
+            else:
+                mean = self.net(h)
+                if self.fixed_std:
+                    std = self.std
+                else:
+                    std = torch.nn.functional.softplus(self.std) + 1e-2
+
+            if self.use_tanh:
+                action_distribution = make_tanh_transformed(mean, std)
+            else:
+                action_distribution = make_multi_normal(mean, std)
+
+        return action_distribution
+
+class EmbeddingCNNPolicy(nn.Module):
+    def __init__(
+        self,
+        ac_dim: int,
+        ob_shape: tuple[int, int, int],  # (C, H, W)
+        num_categories: int,
+        discrete: bool,
+        n_layers: int,
+        layer_size: int,
+        use_tanh: bool = True,
+        state_dependent_std: bool = False,
+        fixed_std: Optional[float] = None,
+        emb_dim: int = 16,
+    ):
+        super().__init__()
+
+        self.use_tanh = use_tanh
+        self.discrete = discrete
+        self.state_dependent_std = state_dependent_std
+        self.fixed_std = fixed_std
+
+        _, H, W = ob_shape
+        self.embedding = nn.Embedding(num_embeddings=num_categories, embedding_dim=emb_dim)
+
+        print(f"Initializing Embedding CNN Actor... Observation Shape = {ob_shape}, Embedding dim = {emb_dim}")
+
+        # CNN Block
+        self.cnn = nn.Sequential(
+            nn.Conv2d(emb_dim, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU()
+        ).to(ptu.device)
+
+        self.flatten = nn.Flatten()
+        conv_out_dim = 64 * H * W
+
+        # Fully connected head
+        if discrete:
+            self.logits_net = ptu.build_mlp(
+                input_size=conv_out_dim,
+                output_size=ac_dim,
+                n_layers=n_layers,
+                size=layer_size,
+            ).to(ptu.device)
+        else:
+            if self.state_dependent_std:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=2 * ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+            else:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+
+                if fixed_std:
+                    self.std = 0.1
+                else:
+                    self.std = nn.Parameter(
+                        torch.full((ac_dim,), 0.0, dtype=torch.float32, device=ptu.device)
+                    )
+
+    def forward(self, obs: torch.Tensor) -> distributions.Distribution:
+        """
+        obs: (B, H, W) — categorical integer grid
+        """
+        x = self.embedding(obs.long())  # (B, H, W, E)
+        x = x.permute(0, 3, 1, 2)       # (B, E, H, W)
+        x = self.cnn(x)                 # (B, 64, H, W)
+        h = self.flatten(x)             # (B, 64 * H * W)
+
+        if self.discrete:
+            logits = self.logits_net(h)
+            action_distribution = distributions.Categorical(logits=logits)
+        else:
+            if self.state_dependent_std:
+                mean, std = torch.chunk(self.net(h), 2, dim=-1)
+                std = F.softplus(std) + 1e-2
+            else:
+                mean = self.net(h)
+                if self.fixed_std:
+                    std = self.std
+                else:
+                    std = F.softplus(self.std) + 1e-2
 
             if self.use_tanh:
                 action_distribution = make_tanh_transformed(mean, std)

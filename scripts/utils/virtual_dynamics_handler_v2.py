@@ -7,7 +7,7 @@ from gymnasium.spaces import Box
 import math
 
 class VirtualDynamicsHandler:
-    def __init__(self, allow_zeros_in_grid=False, discrete_action=False, grid_shape=(17, 10), max_episode_size=200, seed=None, use_tanh=True):
+    def __init__(self, allow_zeros_in_grid=False, discrete_action=False, grid_shape=(17, 10), max_episode_size=200, seed=None, use_tanh=True, use_one_hot_encoding=False):
         self.grid_shape = grid_shape  # (width, height)
         self.max_episode_size = max_episode_size
         self.current_grid = None
@@ -19,6 +19,8 @@ class VirtualDynamicsHandler:
         self.discrete_action = discrete_action
         self.allow_zeros_in_grid = allow_zeros_in_grid
         self.use_tanh = use_tanh
+        self.use_one_hot_encoding = use_one_hot_encoding
+        self.channel = 10 if self.use_one_hot_encoding else 1
 
         self.all_actions =[]
 
@@ -32,7 +34,7 @@ class VirtualDynamicsHandler:
 
         self.spec = type("Spec", (), {"max_episode_steps": self.max_episode_size})()
         self.observation_space = Box(
-            low=0, high=9, shape=(1, self.grid_shape[1], self.grid_shape[0]), dtype=np.float32
+            low=0, high=9, shape=(self.channel, self.grid_shape[1], self.grid_shape[0]), dtype=np.float32
         )
         self.action_space = Box(
             low=np.array([0, 0, 0, 0], dtype=np.float32),
@@ -105,7 +107,10 @@ class VirtualDynamicsHandler:
     
     def get_observation(self) -> np.ndarray:
         """현재 그리드 상태를 (1, H, W) 형태의 np.ndarray로 반환"""
-        return self.current_grid.values.astype(np.float32)[np.newaxis, ...]
+        ob = self.current_grid.values.astype(np.float32)[np.newaxis, ...]
+        if self.use_one_hot_encoding:
+            ob = self.encode_grid(ob)
+        return ob
     
     def compute_reward(self, box_sum):
         diff = abs(box_sum - 10)
@@ -113,7 +118,7 @@ class VirtualDynamicsHandler:
             reward = 100 # 정답이면 100
         else: 
             # reward = 2.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0 # [-1, 1]
-            reward = 1.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0  # [-1, 0]
+            reward = 10.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 10.0  # [-10, 0]
         return reward
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool]:
@@ -148,6 +153,23 @@ class VirtualDynamicsHandler:
             self.grid_shape[0], self.grid_shape[1]
         ])
         return low + 0.5 * (action + 1.0) * (high - low)
+    
+    def encode_grid(self, obs: np.ndarray) -> np.ndarray:
+        """
+        obs: (1, H, W) 형태의 np.ndarray. 값은 0~9 (0은 빈칸).
+        return: (10, H, W) 형태의 one-hot+mask encoding 결과
+            - channel 0~8: 숫자 1~9의 one-hot
+            - channel 9: 빈 칸 (0) 마스크
+        """
+        assert obs.ndim == 3 and obs.shape[0] == 1, f"Expected shape (1, H, W), got {obs.shape}"
+        _, H, W = obs.shape
+        encoded = np.zeros((10, H, W), dtype=np.float32)
+
+        for v in range(1, 10):
+            encoded[v-1] = (obs[0] == v).astype(np.float32)
+        encoded[9] = (obs[0] == 0).astype(np.float32)  # 0 마스크
+
+        return encoded
 
     def _check_done(self):
         return (self.current_grid == 0).all().all()
