@@ -118,7 +118,7 @@ class VirtualDynamicsHandler:
             reward = 100 # 정답이면 100
         else: 
             # reward = 2.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0 # [-1, 1]
-            reward = 10.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 10.0  # [-10, 0]
+            reward = 1.0 * math.exp((-diff**2) / (2.0 * 10.0 ** 2)) - 1.0  # [-1, 0]
         return reward
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool]:

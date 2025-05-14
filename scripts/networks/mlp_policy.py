@@ -1,12 +1,13 @@
 from typing import Optional
 
 from torch import nn
-
+import torch.nn.functional as F
 import torch
 from torch import distributions
 
 from scripts.utils import pytorch_utils as ptu
 from scripts.utils.distributions import make_tanh_transformed, make_multi_normal
+from scripts.networks.CosineSimConv2D import CosineSimConv2D, CosineSimConv2D_v2
 
 class MLPPolicy(nn.Module):
     """
@@ -292,7 +293,6 @@ class EmbeddingCNNPolicy(nn.Module):
         self,
         ac_dim: int,
         ob_shape: tuple[int, int, int],  # (C, H, W)
-        num_categories: int,
         discrete: bool,
         n_layers: int,
         layer_size: int,
@@ -300,6 +300,7 @@ class EmbeddingCNNPolicy(nn.Module):
         state_dependent_std: bool = False,
         fixed_std: Optional[float] = None,
         emb_dim: int = 16,
+        num_categories: int = 10,
     ):
         super().__init__()
 
@@ -309,7 +310,7 @@ class EmbeddingCNNPolicy(nn.Module):
         self.fixed_std = fixed_std
 
         _, H, W = ob_shape
-        self.embedding = nn.Embedding(num_embeddings=num_categories, embedding_dim=emb_dim)
+        self.embedding = nn.Embedding(num_embeddings=num_categories, embedding_dim=emb_dim).to(ptu.device)
 
         print(f"Initializing Embedding CNN Actor... Observation Shape = {ob_shape}, Embedding dim = {emb_dim}")
 
@@ -359,6 +360,8 @@ class EmbeddingCNNPolicy(nn.Module):
         """
         obs: (B, H, W) — categorical integer grid
         """
+        obs = obs.to(ptu.device)
+        obs = obs.squeeze(1)  # (B, H, W), 채널 차원 삭제
         x = self.embedding(obs.long())  # (B, H, W, E)
         x = x.permute(0, 3, 1, 2)       # (B, E, H, W)
         x = self.cnn(x)                 # (B, 64, H, W)
@@ -384,3 +387,103 @@ class EmbeddingCNNPolicy(nn.Module):
                 action_distribution = make_multi_normal(mean, std)
 
         return action_distribution
+
+class CosSimEmbeddingPolicy(nn.Module):
+    def __init__(
+        self,
+        ac_dim: int,
+        ob_shape: tuple[int, int, int],  # (C, H, W)
+        discrete: bool,
+        n_layers: int,
+        layer_size: int,
+        use_tanh: bool = True,
+        state_dependent_std: bool = False,
+        fixed_std: Optional[float] = None,
+        emb_dim: int = 16,
+        num_categories: int = 10,
+        cos_out_channels: int = 64,
+        kernel_size: int = 3,
+        use_embedding_mapping: bool = False,
+    ):
+        super().__init__()
+
+        self.use_tanh = use_tanh
+        self.discrete = discrete
+        self.state_dependent_std = state_dependent_std
+        self.fixed_std = fixed_std
+
+        print(f"Initializing Custom CNN Actor... Observation Shape = {ob_shape}, Embedding dim = {emb_dim}")
+        _, H, W = ob_shape
+
+        # embedding 매핑 분기
+        emb_dim = emb_dim if use_embedding_mapping else num_categories
+        self.num_categories = num_categories
+        self.emb_dim = emb_dim
+        self.use_embedding_mapping = use_embedding_mapping
+        if use_embedding_mapping:
+            self.embedding = nn.Embedding(num_embeddings=num_categories, embedding_dim=emb_dim).to(ptu.device)
+
+        self.cosine_conv = CosineSimConv2D_v2(
+            out_channels=cos_out_channels,
+            kernel_size=kernel_size,
+            embedding_dim=emb_dim,
+            padding='same'
+        ).to(ptu.device)
+
+        self.flatten = nn.Flatten()
+        conv_out_dim = cos_out_channels * H * W
+
+        if discrete:
+            self.logits_net = ptu.build_mlp(
+                input_size=conv_out_dim,
+                output_size=ac_dim,
+                n_layers=n_layers,
+                size=layer_size,
+            ).to(ptu.device)
+        else:
+            if self.state_dependent_std:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=2 * ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+            else:
+                self.net = ptu.build_mlp(
+                    input_size=conv_out_dim,
+                    output_size=ac_dim,
+                    n_layers=n_layers,
+                    size=layer_size,
+                ).to(ptu.device)
+
+                if fixed_std:
+                    self.std = 0.1
+                else:
+                    self.std = nn.Parameter(
+                        torch.full((ac_dim,), 0.0, dtype=torch.float32, device=ptu.device)
+                    )
+
+    def forward(self, obs: torch.Tensor) -> distributions.Distribution:
+        obs = obs.to(ptu.device).squeeze(1)  # (B, H, W)
+        x = self.embedding(obs.long()) if self.use_embedding_mapping else F.one_hot(obs.long(), num_classes=self.num_categories).float() # (B, H, W, E)
+        x = x.permute(0, 3, 1, 2)            # (B, E, H, W)
+        x = self.cosine_conv(x)              # (B, O, H, W)
+        h = self.flatten(x)
+
+        if self.discrete:
+            logits = self.logits_net(h)
+            return distributions.Categorical(logits=logits)
+        else:
+            if self.state_dependent_std:
+                mean, std = torch.chunk(self.net(h), 2, dim=-1)
+                std = F.softplus(std) + 1e-2
+            else:
+                mean = self.net(h)
+                std = self.std if self.fixed_std else F.softplus(self.std) + 1e-2
+
+            if self.use_tanh:
+                return make_tanh_transformed(mean, std)
+            else:
+                return make_multi_normal(mean, std)
+            
+            

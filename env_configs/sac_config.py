@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from scripts.networks.mlp_policy import MLPPolicy, CNNPolicy, EnhancedCNNPolicy
+from scripts.networks.mlp_policy import MLPPolicy, CNNPolicy, EnhancedCNNPolicy, EmbeddingCNNPolicy, CosSimEmbeddingPolicy
 from scripts.networks.state_action_value_critic import StateActionCritic
 from scripts.utils.virtual_dynamics_handler_v2 import VirtualDynamicsHandler
 import scripts.utils.pytorch_utils as ptu
@@ -43,6 +43,9 @@ def sac_config(
     use_one_hot_encoding = False,
     use_enhanced_cnn = False,
     use_embedding_cnn = False,
+    use_custom_cnn = False,
+    emb_dim = 16,
+    use_embedding_mapping = False,
 ):
     def make_critic(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
         return StateActionCritic(
@@ -54,7 +57,7 @@ def sac_config(
 
     def make_actor(observation_shape: Tuple[int, ...], action_dim: int, use_mlp: bool) -> nn.Module:
         # CNN 조건: observation shape가 3차원이고, 채널수가 1이고, H=10, W=17일 경우
-        if (not use_mlp) and (not use_enhanced_cnn):
+        if (not use_mlp) and (not use_enhanced_cnn and not use_embedding_cnn and not use_custom_cnn):
             print("Using CNN Policy")
             return CNNPolicy(
                 ac_dim=action_dim,
@@ -78,6 +81,33 @@ def sac_config(
                 state_dependent_std=False,
                 fixed_std=actor_fixed_std,
             )
+        elif (not use_mlp) and (use_custom_cnn):
+            print("Using Custom CNN Policy")
+            return CosSimEmbeddingPolicy(
+                ac_dim=action_dim,
+                ob_shape=observation_shape,
+                discrete=False,
+                n_layers=num_layers,
+                layer_size=hidden_size,
+                use_tanh=use_tanh,
+                state_dependent_std=False,
+                fixed_std=actor_fixed_std,
+                emb_dim = emb_dim
+            )
+        elif (not use_mlp) and (use_embedding_cnn):
+            print("Using Embedding CNN Policy")
+            return EmbeddingCNNPolicy(
+                ac_dim=action_dim,
+                ob_shape=observation_shape,
+                discrete=False,
+                n_layers=num_layers,
+                layer_size=hidden_size,
+                use_tanh=use_tanh,
+                state_dependent_std=False,
+                fixed_std=actor_fixed_std,
+                emb_dim = emb_dim, 
+                use_embedding_mapping = use_embedding_mapping
+            )        
         # MLP fallback
         if actor_fixed_std is not None:
             return MLPPolicy(
